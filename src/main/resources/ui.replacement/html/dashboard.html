@@ -1,0 +1,1017 @@
+<link as='style' rel="stylesheet" href="/templates/css/id.css">
+<script src="/scripts/node_modules/vue/dist/vue.global.js"></script>
+<script src="/scripts/node_modules/lodash/lodash.js" ></script>
+
+<script type="text/javascript">
+    $(function(){
+        const { createApp } = Vue;
+
+        createApp({
+            data() {
+                return {
+                    show_id: new URL(window.location).searchParams.get("show_id"),
+                    User: { PinCode : {} },
+                    Applications : [],
+                    Company : {} ,
+                    NewSubmittedDocument : { DocumentId : "" ,FileContentName :"" ,DocumentedModelName :"",DocumentedModelId :"" , "File" : null},
+                    Documents: [],
+                    SubmittedDocuments: [],
+                    LookUp : {
+                        Meta:{},
+                        partial:"",
+                        timeOut : undefined,
+                        delay: 800,
+                        Entries:[],
+                    },
+                    Meta :{  
+                        User : {
+                            TextFields : ["FirstName","LastName","AddressLine1", "AddressLine2", "AddressLine3"] ,
+                            ReferenceFields: [{ field: "PinCode" ,  refModel: "PinCode" , refDescriptor:"PinCode", refModelArrayName:"PinCodes" ,apiBaseName : 'pin_codes'}],
+                        },
+                        EndPoint : {
+                            ReferenceFields: [{ field: "OpenApi", refModel: "OpenApi", refDescriptor: "Name", refModelArrayName: "OpenApis", apiBaseName: 'open_apis' }],
+                        },
+                        Facility: {
+                            TextFields: ["AddressLine1", "AddressLine2", "AddressLine3"],
+                            ReferenceFields: [{ field: "PinCode", refModel: "PinCode", refDescriptor: "PinCode", refModelArrayName: "PinCodes", apiBaseName: 'pin_codes' }],
+                        },
+                    },
+                    Notification : {
+                        errorTimeOut : undefined,
+                        msg : undefined
+                    }
+                }
+            },
+            methods: {
+                showErrorMessage(msg, duration){
+                    let self = this; 
+                    let time = duration || 500;
+                    self.Notification.msg = msg;
+                    if(self.Notification.errorTimeOut) {
+                        clearTimeout(self.Notification.errorTimeOut);
+                        self.Notification.errorTimeOut = undefined;
+                    }
+                    return new Promise(function (resolve, reject) {
+                        self.Notification.errorTimeOut = setTimeout(function () {
+                            self.Notification.msg = undefined;
+                            resolve();
+                        }, time);
+                    });
+                },
+                showError(err){
+                    if (err.response) {
+                        if (err.response.status === 401) {
+                            window.location.replace("/logout");
+                        } else if (err.response.status === 413) {
+                            showErrorMessage("Size Uploaded Too Big");
+                        } else if (err.response.data && err.response.data.SWFHttpResponse.Error) {
+                            showErrorMessage(err.response.data.SWFHttpResponse.Error)
+                        } else {
+                            showErrorMessage(err.response.toString());
+                        }
+                    } else {
+                        showErrorMessage(err.toString());
+                    }
+
+                },
+                getFieldMeta(field,onModel){
+                    return this.Meta[onModel].ReferenceFields.find(function (f) {
+                        return field == f.field;
+                    });
+                },
+                onChange: function (event, field , dbModelName , onVueModel) {
+                    event && event.preventDefault();
+                    let self = this;
+
+                    if (self.isKeyTriggerable(event)) {
+                        self.LookUp.Meta = self.getFieldMeta(field,dbModelName);
+                        self.LookUp.Meta.vueModel = onVueModel;
+
+                        if (self.LookUp.timeOut) {
+                            clearTimeout(self.LookUp.timeOut);
+                            self.LookUp.timeOut = undefined;
+                        }
+                        self.LookUp.timeOut = setTimeout(function () {
+                            self.clearLookup();
+                            self.LookUp.partial = event.target.value;
+                            let meta = self.LookUp.Meta;
+                            let ajaxUrl = '/' + meta.apiBaseName + "/search";
+                            let q = event.target.value.replace(/[^a-zA-Z0-9 ]/g, " ").trim();
+                            if (field) {
+                                let column = _.toUpper(_.snakeCase(meta.refDescriptor));
+                                q = column + ":" + q.replace(" ", `* AND ${column}:`) + "*";
+                            }
+                            api().url(ajaxUrl).get({ q: q, maxRecords: 6 }).then(function (response) {
+                                if (event.target.value == self.LookUp.partial) {
+                                    self.LookUp.Entries = response[meta.refModelArrayName];
+                                    if (self.LookUp.Entries.length > 0) {
+                                        self.loadLookupEntries(event.target);
+                                    }
+                                }
+                            }).catch(function (err) {
+                                showError(err);
+                            });
+                        }, self.LookUp.delay);
+
+                    }
+                },
+                onEntrySelect(event,entry){
+                    event && event.preventDefault();
+                    let self = this;
+                    self.hideKeyboard().then(function () {
+                        self.LookUp.Meta.vueModel[self.LookUp.Meta.field] = entry;
+                        self.clearLookup();
+                    });
+                },
+                spinner(on){
+                    if (on){
+                        this.$refs["spinner"].classList.remove("hidden");
+                    }else{
+                        this.$refs["spinner"].classList.add("hidden");
+                    }
+                },
+                show(id){
+                    this.show_id = id;
+                    this[id]();
+                },
+                dashboard(){
+  
+                },
+                addFacility(event){
+                    event && event.preventDefault();
+                    this.Company.Facilities.push({ PinCode: {} });
+                },
+                cancelFacilityAdd(event){
+                    event && event.preventDefault();
+                    let self = this;
+                    let index = self.Company.Facilities.length-1;
+                    let f = self.Company.Facilities[index];
+                    if (!f.Id || Number.parseInt(ep.Id) == 0) {
+                        self.Company.Facilities.splice(index, 1);
+                    }
+
+                },
+                addApplication(initialize){
+                    let app = {
+                        CompanyId: self.CompanyId,
+                        HashingAlgorithim: "BLAKE2B-512",
+                        SigningAlgorithm: "Ed25519",
+                        Headers: "(created) (expires) digest",
+                    };
+                    this.Applications.push(app);
+                    if (initialize){
+                        this.initApplication(app)
+                    }
+                },
+                initApplication(app){
+
+                    if (!app.ApplicationPublicKeys || app.ApplicationPublicKeys.length == 0) {
+                        let keyId = window.crypto.randomUUID();
+                        app.ApplicationPublicKeys = [
+                            { Purpose: "ENCRYPTION", Algorithm: "X25519", KeyId: keyId, PublicKey: null, ValidFrom: "", ValidUntil: "" },
+                            { Purpose: "SIGNING", Algorithm: "Ed25519", KeyId: keyId, PublicKey: null, ValidFrom: "", ValidUntil: "" }
+                        ]
+                    }
+                    if (!app.EndPoints || app.EndPoints.length == 0) {
+                        this.addEndPoint(null, app);
+                    }
+                },
+                application(){
+                    let self = this; 
+                    self.Applications = [];
+                    self.loadCompanies().then(function(){
+                        let b = btoa(
+                            JSON.stringify(
+                                {"ApplicationPublicKey" : ["PublicKey","ValidFrom","ValidUntil", "Purpose" , "Verified" , "KeyId"], 
+                                    "EndPoint" : ["Id","BaseUrl","OpenApiId"],
+                                    "OpenApi"  : ["Name"]  }));
+
+                        api().url("/applications/search").headers({"IncludedModelFields" : b}).get({ q: `(COMPANY_ID: ${self.Company.Id})` }).then(function(r){
+                            if (r.Applications.length >0 ){
+                                r.Applications.forEach(a=>{
+                                    self.Applications.push(a);  
+                                })
+                            }else {
+                                self.addApplication();
+                            }
+                            self.Applications.forEach((Application)=>{
+                                self.initApplication(Application);
+                            });
+                        });  
+                    })
+                },
+                loadCompanies(){
+                    let self = this;
+                    let b = btoa(
+                        JSON.stringify(
+                            {
+                                "Facility": ["Id","Name", "AddressLine1", "AddressLine2", "AddressLine3","PinCodeId"],
+                                "PinCode" : ["PinCode"]
+                            }));
+
+                    return api().url("/companies").headers({"IncludedModelFields":b}).get().then(function (r) {
+                        if (r.Companies.length > 0) {
+                            self.Company = r.Companies[0];
+                        } else {
+                            self.Company = {};
+                        }
+                        if (!self.Company.Facilities || self.Company.Facilities.length ==0){
+                            self.Company.Facilities = [{ PinCode: {} }];
+                        }
+                    });
+                },
+                company_profile(){
+                    let self =this;
+                    self.NewSubmittedDocument.DocumentedModelName = "Company";
+                    self.NewSubmittedDocument.DocumentedModelId = self.Company.Id;
+                    api().url("/documents").get({ q: "DOCUMENTED_MODEL_NAME:Company" }).then(function (response) {
+                        self.Documents = response.Documents;
+                    });
+                    api().url("/submitted_documents/search").get({ q: `(DOCUMENTED_MODEL_ID:${self.Company.Id} AND DOCUMENTED_MODEL_NAME:Company)` }).then(function (response) {
+                        self.SubmittedDocuments = response.SubmittedDocuments;
+                    });
+                },
+                profile(){
+                    let self = this;
+                    self.NewSubmittedDocument.DocumentedModelName = "User";
+                    self.NewSubmittedDocument.DocumentedModelId = self.User.Id;
+
+                    api().url("/documents").get({ q: "DOCUMENTED_MODEL_NAME:User" }).then(function (response) {
+                        self.Documents = response.Documents;
+                    });
+                    api().url("/submitted_documents/search").get({ q: `(DOCUMENTED_MODEL_ID:${self.User.Id} AND DOCUMENTED_MODEL_NAME:User)` }).then(function (response) {
+                        self.SubmittedDocuments = response.SubmittedDocuments;
+                    });
+                },
+                isKeyTriggerable: function (e) {
+                    return (e && e.target.value.length > 0);
+                },
+
+                navigate(e, index, length) {
+                    e && e.preventDefault();
+                    let self = this;
+                    let anchors = this.$refs['LookupEntries'].getElementsByTagName("a");
+                    anchors[index % length].focus();
+                },
+                loadLookupEntries: function(element){
+                    var div = this.getParentDiv(element);
+                    if (div){
+                        div.appendChild(this.$refs['LookupEntries']);
+                        this.$refs['LookupEntries'].classList.remove('hidden');
+                    }
+                }, 
+                
+                getParentDiv(element) {
+                    var div = element;
+                    while (div && div.tagName !== 'DIV') {
+                        div = div.parentElement;
+                    }
+                    return div;
+                },
+                clearLookup(){
+                    this.LookUp.Entries = [];
+                    this.$refs['LookupEntries'].classList.add('hidden');
+                },
+                removeList(event){
+                    this.clearLookup();
+                },
+                hideKeyboard(event){
+                    let self = this;
+                     return new Promise(function (resolve, reject) {
+                        let dummy = self.$refs['content'];
+                        setTimeout(function () {
+                            dummy.focus();
+                            setTimeout(function () {
+                                resolve();
+                            }, 50);
+                        }, 50);
+                    });
+ 
+                }, 
+                saveUser(event){
+                    let self = this;
+                    self.spinner(true);
+                    api().url("/users/save").parameters({User: self.User}).post().then(function(response){
+                        self.User = response.Users[0];
+                        self.NewSubmittedDocument.DocumentedModelName = "User";
+                        self.NewSubmittedDocument.DocumentedModelId = self.User.Id;
+                        self.showErrorMessage("User Saved");
+                    }).catch(function(err){
+                        self.showError(err);
+                    }).finally(function(){
+                        self.spinner(false);
+                    });
+                },
+                validateOtp(event){
+
+                    event && event.preventDefault();
+                    let self = this;
+                    if (!self.User.UserEmails){
+                        return;
+                    }
+                    let userEmail = self.User.UserEmails[0]; 
+
+                    self.spinner(true);
+                    if (userEmail.Otp && userEmail.Otp.length > 0){
+                        api().url("/user_emails/validateOtp/"+userEmail.Id).parameters({"Otp":userEmail.Otp}).post().then(function(response){
+                            userEmail.Validated = response.UserEmail.Validated;
+                            if (userEmail.Validated === 'Y'){
+                                delete userEmail.LastOtp;
+                            }
+                        }).catch(function(err){
+                            self.showError(err);
+                        }).finally(function(){
+                            self.spinner(false);
+                        });
+                    }else {
+                        api().url("/user_emails/sendOtp/" + userEmail.Id).get().then(function (response) {
+                            userEmail.LastOtp = "****";
+                            self.showErrorMessage(response.SWFHttpResponse.Status);
+                        }).finally(function(){
+                            self.spinner(false);
+                        });
+                    }
+                },
+
+                onFileSelect(e) {
+                    e && e.preventDefault();
+                    let self = this;
+                    self.NewSubmittedDocument.FileContentName = e.target.files[0].name;
+                    self.createDataFile(e.target.files[0],function(datafile){
+                        self.NewSubmittedDocument.File = datafile;
+                        self.$forceUpdate();
+                    });
+                    
+                },
+                createDataFile: function (file, callback) {
+                    var reader = new FileReader();
+                    reader.onloadend = (e) => {
+                        callback(e.target.result);
+                    }
+                    
+                    reader.readAsDataURL(file);
+                },
+                initNewSubmittedDocument(){
+                    let self = this;
+                    self.NewSubmittedDocument.DocumentId = "";
+                    self.NewSubmittedDocument.FileContentName = "";
+                    self.NewSubmittedDocument.File = null;
+                },
+                submitDocument(e){
+                    e && e.preventDefault();
+                    let self = this;
+                    self.spinner(true);
+                    api().url("/submitted_documents/save").parameters({SubmittedDocument : self.NewSubmittedDocument}).post().then(function(response){
+                        self.SubmittedDocuments.splice(0,0,response.SubmittedDocuments[0]);
+                        self.initNewSubmittedDocument();
+                        //window.location.reload();
+                    }).finally(function(){
+                        self.spinner(false);
+                    });
+                },
+                destroySubmittedDocument(e,index){
+                    e && e.preventDefault();
+                    let self = this;
+                    let sd = self.SubmittedDocuments[index];
+                    api().url(`/submitted_documents/destroy/${sd.Id}`).get().then(function(response){
+                        self.SubmittedDocuments.splice(index,1);
+                    });
+                },
+                onDocumentSelect(ev,id){
+                    ev && ev.preventDefault();
+                    this.NewSubmittedDocument.DocumentId = id;
+                    this.$forceUpdate();
+                },
+                logout(){
+                    window.location.replace("/logout");
+                },
+                saveCompany(){
+                let b = btoa(
+                        JSON.stringify(
+                            {
+                                "Facility": ["Id", "Name", "AddressLine1", "AddressLine2", "AddressLine3", "PinCodeId"],
+                                "PinCode": ["PinCode"]
+                            }));
+                    this.save("companies","Company","Companies", {"IncludedModelFields":b});
+                },
+                save(apiBaseName,refModel,refModelArrayName,headers = {}){
+                    let self = this;
+                    self.spinner(true);
+                    let parameters = {};
+                    parameters[refModel] = this[refModel];
+                    api().url(`/${apiBaseName}/save`).headers(headers).parameters(parameters).post().then(function (r) {
+                        if (refModel === refModelArrayName){
+                            self[refModel] = r[refModelArrayName];    
+                        }else {
+                            self[refModel] = r[refModelArrayName][0];
+                            if (self[refModel].Id){
+                                self.NewSubmittedDocument.DocumentedModelName = refModel;
+                                self.NewSubmittedDocument.DocumentedModelId = self[refModel].Id;
+                            }
+                        }
+                        
+                        self.showErrorMessage(`${refModel} Saved`);
+                    }).finally(function () {
+                        self.spinner(false);
+                    });
+
+                },
+                saveApplications(){
+                    let b = btoa(
+                        JSON.stringify(
+                            {
+                                "ApplicationPublicKey": ["PublicKey", "ValidFrom", "ValidUntil", "Purpose", "Verified", "KeyId"],
+                                "EndPoint": ["Id", "BaseUrl", "OpenApiId"],
+                                "OpenApi": ["Name"]
+                            }));
+
+                    this.save("applications","Applications","Applications", { "IncludedModelFields": b })
+                },
+                addEndPoint(event,application){
+                    event && event.preventDefault();
+                    if (!application.EndPoints){
+                        application.EndPoints = [] ;
+                    }
+                    application.EndPoints.push({
+                        BaseUrl: "", OpenApi: {}
+                    });
+                },
+                removeEndPoint(event,application,ep , index){
+                    event && event.preventDefault();
+                    let self = this;
+                    if (!ep.Id || Number.parseInt(ep.Id) == 0 ){
+                        application.EndPoints.splice(index, 1);
+                    }
+                },
+                clearApp(event,application,ai){
+                    event && event.preventDefault();
+                    let self = this;
+                    self.Applications.splice(ai,1);
+                }
+
+            },
+            mounted() {
+                let self = this;
+                let IncludedModelFields = btoa(
+                    JSON.stringify(
+                        {
+                            "User": ["Id"],
+                            "UserEmail":["Id"],
+                        }));
+
+                api().url("/users/current").headers({ "IncludedModelFields": IncludedModelFields }).get().then(function(response){
+                    self.User = response.User;
+                    if (!self.User.PinCode){
+                        self.User.PinCode = {};
+                    }
+                    if (self.User.UserEmails[0].Validated === 'N') {
+                        self.User.UserEmails[0].LastOtp = "****";
+                    }
+                }).then(function(){
+                    self.loadCompanies().then(function(){
+                        if (self.show_id) {
+                            self.show(self.show_id);
+                        } else {
+                            self.show("dashboard")
+                        }
+                        let e = self.$refs['content'];
+                        e.classList.remove("invisible");
+                    });
+                });
+
+            },
+
+        }).mount('#app')
+    })
+</script>
+
+<div class="container  mx-auto relative" id="app">
+    <div id="LookupEntries" ref="LookupEntries" class="absolute my-0 w-full h-full hidden z-10" >
+        <div v-for="(entry,index) in LookUp.Entries" >
+            <a href="#" class="ml-4 block p-2 bg-blue-100 focus:bg-blue-300 focus:text-white" v-on:click="onEntrySelect($event,entry)" 
+                v-on:keyup.space="onEntrySelect($event,entry)"
+                v-on:keyup.enter="onEntrySelect($event,entry)"
+                v-on:keyup.up="navigate($event,index-1,LookUp.Entries.length)"
+                v-on:keyup.down="navigate($event,index+1,LookUp.Entries.length)">{{entry[LookUp.Meta.refDescriptor]}} </a>
+        </div>
+    </div>
+    <div id="spinner" ref="spinner" class="absolute my-0 w-full h-full cursor-wait z-10 hidden">
+    </div>
+    <div class="w-full fixed left-0 z-10" v-if="Notification.msg">
+        <div id="msg" ref="msg" class="text-center p-1 bg-green-200 text-dark font-semibold " >
+            {{Notification.msg}}
+        </div>
+    </div>
+    
+    <div class="flex flex-row h-full invisible relative" ref="content">
+        <div class="flex flex-col group w-3 hover:w-max  h-full fixed   left-0 z-10 bg-blue-600">
+            <div class="group-hover:visible invisible  p-2 text-white bg-blue-600 hover:bg-blue-700 active:bg-blue-900 hover:cursor-pointer fas fa-chart-line text-xl"
+                v-on:click="show('dashboard')" title="Dashboard"></div>
+            <div class="group-hover:visible invisible p-2 text-white bg-blue-600 hover:bg-blue-700 active:bg-blue-900 hover:cursor-pointer fas fa-id-card text-xl"
+                v-on:click="show('profile')" title="Profile"></div>
+            <div class="group-hover:visible invisible p-2 text-white bg-blue-600 hover:bg-blue-700 active:bg-blue-900  hover:cursor-pointer fas fa-cloud text-xl"
+                v-on:click="show('application')" title="Applications" v-if="Company.KycComplete == 'Y'"></div>
+            <div class="group-hover:visible invisible p-2 text-white bg-blue-600 hover:bg-blue-700 active:bg-blue-900  hover:cursor-pointer fas fa-building text-xl "
+                v-on:click="show('company_profile')" title="Company Profile" v-if="User.KycComplete == 'Y'"> </div>
+            <div class="group-hover:visible invisible p-2 text-white bg-blue-600 hover:bg-blue-700 active:bg-blue-900  hover:cursor-pointer fas fa-power-off text-xl"
+                v-on:click="logout()" title="Logout"></div>
+        </div>
+        <div class="md:mx-11  sm:mx-3 basis-full mt-6" >
+            <div id="dashboard" class=" basis-full" v-if="show_id === 'dashboard'">Dashboard</div>
+            <div id="application" class=" basis-full" v-if="show_id === 'application' && Company.KycComplete == 'Y'">
+                <div class="grid grid-cols-2 mt-2">
+                    <div class="text-dark text-2xl font-semibold">Application</div>
+                    <div class="flex flex-row-reverse">
+                        <button 
+                            class="h-full px-2 mr-2 py-1  bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white  hover:cursor-pointer fas fa-save text-2xl"
+                            @click="saveApplications" ></button>
+                        <button
+                            class="h-full px-2 mr-2 py-1  bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white hover:cursor-pointer fas fa-plus text-2xl"
+                            @click="addApplication(true)"></button>
+                    </div>
+                </div>
+                <div class="relative mt-8 pb-4 border border-dark box-content pl-3 -ml-3 -mr-6 pr-6" v-for="(Application,ai) in  Applications">
+                    <a href="#" class="z-10 absolute -right-0 px-2 py-0 -mr-4 -mt-4 border-2  border-red-900  rounded-xl fa fa-times hover:cursor-pointer text-red-600 hover:text-red-700 active:text-red-800 text-2xl" v-if="!Application.Id" @click="clearApp($event,Application,ai)"></a>
+                    <div class="mt-5 grid sm:grid-cols-1 md:grid-cols-2 gap-2">
+                        <div class="relative my-1">
+                            <input v-bind:id="'Name_'+ai" v-model="Application.AppId" type="text"
+                                class="w-full h-full form-input placeholder:text-gray-500  focus:placeholder:text-transparent peer"
+                                placeholder="Application Id" />
+                            <label v-bind:for="'Name_'+ai"
+                                class="absolute left-0 ml-1 px-1 mt-2 bg-white  -translate-y-5 text-sm duration-75 text-gray-500
+                                                    peer-placeholder-shown:bg-transparent peer-placeholder-shown:text-transparent
+                                                    peer-focus:text-gray-500 peer-focus:bg-white  peer-focus:-translate-y-5  peer-focus:text-sm">
+                                Application Id
+                            </label>
+                        </div>
+                        <div class="relative my-1">
+                            <input v-bind:id="'ChangeSecret_'+ai" v-model="Application.ChangeSecret" type="text"
+                                class="w-full h-full form-input placeholder:text-gray-500  focus:placeholder:text-transparent peer"
+                                placeholder="Secret" />
+                            <label v-bind:for="'ChangeSecret_'+ai"
+                                class="absolute left-0 ml-1 px-1 mt-2 bg-white  -translate-y-5 text-sm duration-75 text-gray-500
+                                                                            peer-placeholder-shown:bg-transparent peer-placeholder-shown:text-transparent
+                                                                            peer-focus:text-gray-500 peer-focus:bg-white  peer-focus:-translate-y-5  peer-focus:text-sm">
+                                Secret
+                            </label>
+                        </div>
+                    </div>
+                    <div class="mt-2 grid sm:grid-cols-1 md:grid-cols-12 gap-2" v-for="(pk,i) in Application.ApplicationPublicKeys">
+                        <div class="relative my-1 md:col-span-6">
+                            <input v-bind:id="'pk_'+ai+'_'+i" v-model="pk.PublicKey" type="text"
+                                class="w-full h-full form-input placeholder:text-gray-500  focus:placeholder:text-transparent peer"
+                                v-bind:placeholder="pk.Purpose + ' Public Key'" />
+                            <label v-bind:for="'pk_'+ai+'_'+i"
+                                class="absolute left-0 ml-1 px-1 mt-2 bg-white  -translate-y-5 text-sm duration-75 text-gray-500
+                                                                                            peer-placeholder-shown:bg-transparent peer-placeholder-shown:text-transparent
+                                                                                            peer-focus:text-gray-500 peer-focus:bg-white  peer-focus:-translate-y-5  peer-focus:text-sm">
+                                {{pk.Purpose + ' Public Key'}}
+                            </label>
+                        </div>
+                        <div class="relative my-1 md:col-span-3">
+                            <input v-bind:id="'from_'+ai+'_'+i" v-model="pk.ValidFrom" type="datetime-local"
+                                class="w-full h-full form-input placeholder:text-gray-500  focus:placeholder:text-transparent peer"
+                                placeholder="Valid From" />
+                            <label v-bind:for="'from_'+ai+'_'+i"
+                                class="absolute left-0 ml-1 px-1 mt-2 bg-white  -translate-y-5 text-sm duration-75 text-gray-500
+                                                peer-placeholder-shown:bg-transparent peer-placeholder-shown:text-transparent
+                                                peer-focus:text-gray-500 peer-focus:bg-white  peer-focus:-translate-y-5  peer-focus:text-sm">
+                                Valid From
+                            </label>
+                        </div>
+                        <div class="relative my-1 md:col-span-3">
+                            <input v-bind:id="'to_'+ai+'_'+i" v-model="pk.ValidUntil" type="datetime-local"
+                                class="w-full h-full form-input placeholder:text-gray-500  focus:placeholder:text-transparent peer"
+                                placeholder="Valid To" />
+                            <label v-bind:for="'to_'+ai+'_'+i"
+                                class="absolute left-0 ml-1 px-1 mt-2 bg-white  -translate-y-5 text-sm duration-75 text-gray-500
+                                                peer-placeholder-shown:bg-transparent peer-placeholder-shown:text-transparent
+                                                peer-focus:text-gray-500 peer-focus:bg-white  peer-focus:-translate-y-5  peer-focus:text-sm">
+                                Valid To
+                            </label>
+                        </div>
+                    </div>
+                    
+                    
+                    <div class="mt-2 grid sm:grid-cols-1 md:grid-cols-2 gap-2" v-for="(ep,i) in Application.EndPoints">
+                        <div class="relative my-1">
+                            <input v-bind:id="'ep_'+ai+'_'+i" v-model="ep.BaseUrl" type="text"
+                                class="w-full h-full form-input placeholder:text-gray-500  focus:placeholder:text-transparent peer"
+                                placeholder="Base Url" />
+                            <label v-bind:for="'ep_'+ai+'_'+i"
+                                class="absolute left-0 ml-1 px-1 mt-2 bg-white  -translate-y-5 text-sm duration-75 text-gray-500
+                                                                                            peer-placeholder-shown:bg-transparent peer-placeholder-shown:text-transparent
+                                                                                            peer-focus:text-gray-500 peer-focus:bg-white  peer-focus:-translate-y-5  peer-focus:text-sm">
+                                Base Url
+                            </label>
+                        </div>
+                        <div class="relative my-1 flex flex-row">
+                            <input v-bind:id="'ep_oapi_'+ai+'_'+i" v-model="ep.OpenApi.Name" type="text"
+                                class="w-full h-full form-input placeholder:text-gray-500  focus:placeholder:text-transparent peer"
+                                placeholder="Open Api Implemented" v-on:input="onChange($event,'OpenApi','EndPoint',ep)"
+                                v-on:focus="removeList($event)" v-on:keyup.down="navigate($event,0,LookUp.Entries.length)" />
+                            <label v-bind:for="'ep_oapi_'+ai+'_'+i"
+                                class="absolute left-0 ml-1 px-1 mt-2 bg-white  -translate-y-5 text-sm duration-75 text-gray-500
+                                                peer-placeholder-shown:bg-transparent peer-placeholder-shown:text-transparent
+                                                peer-focus:text-gray-500 peer-focus:bg-white  peer-focus:-translate-y-5  peer-focus:text-sm">
+                                Open Api Implemented
+                            </label>
+                            <a href="#" class="fas fa-plus text-xl h-5 w-5 p-1 -mr-5 absolute right-0  text-blue-600 hover:text-blue-700 active:text-blue-800 " title="Add"
+                                @click="addEndPoint($event,Application)"
+                                v-if="(ep.Id && (!Application.EndPoints[i+1] || !Application.EndPoints[i+1].Id ))"></a>
+                    
+                            <a href="#" class="fas fa-times text-xl h-5 w-5 p-1 -mr-5 absolute right-0  hover:cursor-pointer text-red-600 hover:text-red-700 active:text-red-800 " title="Remove" 
+                                @click="removeEndPoint($event,Application,ep,i)" v-if="!ep.Id && i > 0"></a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="company_profile" class="basis-full" v-else-if="show_id === 'company_profile'">
+                <div class="grid grid-cols-2 mt-2">
+                    <div class="text-dark text-2xl font-semibold">Company Profile</div>
+                    <div class="flex flex-row-reverse">
+                        <button class="h-full  text-base px-10 py-3 rounded-xl hover:cursor-pointer disabled:hover:cursor-default bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white disabled:bg-gray-600"
+                            @click="saveCompany" :disabled="Company.KycComplete == 'Y'" >Save</button>
+                    </div>
+                </div>
+                <div class="mt-5 grid sm:grid-cols-1 md:grid-cols-2 gap-2"> 
+                    <div class="relative my-1">
+                        <input id="Name" v-model="Company.Name" type="text"
+                            class="w-full h-full form-input placeholder:text-gray-500  focus:placeholder:text-transparent peer"
+                            placeholder="Company Name"  :disabled="Company.KycComplete == 'Y'"/>
+                        <label for="Name"
+                            class="absolute left-0 ml-1 px-1 mt-2 bg-white  -translate-y-5 text-sm duration-75 text-gray-500
+                            peer-placeholder-shown:bg-transparent peer-placeholder-shown:text-transparent
+                            peer-focus:text-gray-500 peer-focus:bg-white  peer-focus:-translate-y-5  peer-focus:text-sm">Company Name</label>
+                    </div>
+                    <div class="relative my-1">
+                        <input id="DateOfIncorporation" v-model="Company.DateOfIncorporation" type="date"
+                            class="w-full h-full form-input placeholder:text-gray-500  focus:placeholder:text-transparent peer"
+                            placeholder="Date Of Incorporation" :disabled="Company.KycComplete == 'Y'"/>
+                        <label for="DateOfIncorporation"
+                            class="absolute left-0 ml-1 px-1 mt-2 bg-white  -translate-y-5 text-sm duration-75 text-gray-500
+                            peer-placeholder-shown:bg-transparent peer-placeholder-shown:text-transparent
+                            peer-focus:text-gray-500 peer-focus:bg-white  peer-focus:-translate-y-5  peer-focus:text-sm">Date Of Incorporation</label>
+                    </div>
+                    <div class="relative my-1">
+                        <input id="DomainName" v-model="Company.DomainName" type="text"
+                            class="w-full h-full form-input placeholder:text-gray-500  focus:placeholder:text-transparent peer"
+                            placeholder="Domain Name" :disabled="Company.KycComplete =='Y'"/>
+                        <label for="Name"
+                            class="absolute left-0 ml-1 px-1 mt-2 bg-white  -translate-y-5 text-sm duration-75 text-gray-500
+                            peer-placeholder-shown:bg-transparent peer-placeholder-shown:text-transparent
+                            peer-focus:text-gray-500 peer-focus:bg-white  peer-focus:-translate-y-5  peer-focus:text-sm">Domain Name
+                            </label>
+                    </div>
+                    <div class="relative my-1">
+                        <input id="SubscriberId" v-model="Company.SubscriberId" type="text"
+                            class="w-full h-full form-input placeholder:text-gray-500  focus:placeholder:text-transparent peer"
+                            placeholder="Generated Subscriber Id" disabled/>
+                        <label for="SubscriberId"
+                            class="absolute left-0 ml-1 px-1 mt-2 bg-white  -translate-y-5 text-sm duration-75 text-gray-500
+                            peer-placeholder-shown:bg-transparent peer-placeholder-shown:text-transparent
+                            peer-focus:text-gray-500 peer-focus:bg-white  peer-focus:-translate-y-5  peer-focus:text-sm">
+                            Generated Subscriber Id
+                        </label>
+                    </div>
+                    <div class="relative my-1">
+                        <input id="RegistrationNumber" v-model="Company.RegistrationNumber" type="text"
+                            class="w-full h-full form-input placeholder:text-gray-500  focus:placeholder:text-transparent peer"
+                            placeholder="Company Registration Number" :disabled="Company.KycComplete =='Y'"/>
+                        <label for="Name"
+                            class="absolute left-0 ml-1 px-1 mt-2 bg-white  -translate-y-5 text-sm duration-75 text-gray-500
+                            peer-placeholder-shown:bg-transparent peer-placeholder-shown:text-transparent
+                            peer-focus:text-gray-500 peer-focus:bg-white  peer-focus:-translate-y-5  peer-focus:text-sm">Company Registration Number
+                        </label>
+                    </div>
+                    <div class="relative my-1">
+                        <input id="TaxId" v-model="Company.TaxIdentificationNumber" type="text"
+                            class="w-full h-full form-input placeholder:text-gray-500  focus:placeholder:text-transparent peer"
+                            placeholder="Tax Identification Number" :disabled="Company.KycComplete =='Y'" />
+                        <label for="Name"
+                            class="absolute left-0 ml-1 px-1 mt-2 bg-white  -translate-y-5 text-sm duration-75 text-gray-500
+                            peer-placeholder-shown:bg-transparent peer-placeholder-shown:text-transparent
+                            peer-focus:text-gray-500 peer-focus:bg-white  peer-focus:-translate-y-5  peer-focus:text-sm">Company
+                            Tax Identification Number
+                        </label>
+                    </div>
+                </div>
+                <div class="mt-7 grid sm:grid-cols-1 md:grid-cols-2 gap-2 border border-dark p-3 relative">
+                    <label class="absolute left-0  ml-3 px-1 -mt-4 py-1 bg-gray-300 border border-black text-dark rounded-xl text-sm" >Banking Details</label>
+                    <div class="relative mb-1 mt-4">
+                        <input id="BankName" v-model="Company.BankName" type="text"
+                            class="w-full h-full form-input placeholder:text-gray-500  focus:placeholder:text-transparent peer"
+                            placeholder="Bank Name" :disabled="Company.KycComplete =='Y'" />
+                        <label for="BankName"
+                            class="absolute left-0 ml-1 px-1 mt-2 bg-white  -translate-y-5 text-sm duration-75 text-gray-500
+                                peer-placeholder-shown:bg-transparent peer-placeholder-shown:text-transparent
+                                peer-focus:text-gray-500 peer-focus:bg-white  peer-focus:-translate-y-5  peer-focus:text-sm">Company
+                            Bank Name
+                        </label>
+                    </div>
+                    <div class="relative mb-1 mt-4">
+                        <input id="BankCode" v-model="Company.BankCode" type="text"
+                            class="w-full h-full form-input placeholder:text-gray-500  focus:placeholder:text-transparent peer"
+                            placeholder="Bank Code" :disabled="Company.KycComplete =='Y'" />
+                        <label for="BankCode"
+                            class="absolute left-0 ml-1 px-1 mt-2 bg-white  -translate-y-5 text-sm duration-75 text-gray-500
+                            peer-placeholder-shown:bg-transparent peer-placeholder-shown:text-transparent
+                            peer-focus:text-gray-500 peer-focus:bg-white  peer-focus:-translate-y-5  peer-focus:text-sm">Company
+                            Bank Code
+                        </label>
+                    </div>
+                    <div class="relative my-1">
+                        <input id="BranchName" v-model="Company.BranchName" type="text"
+                            class="w-full h-full form-input placeholder:text-gray-500  focus:placeholder:text-transparent peer"
+                            placeholder="Branch Name" :disabled="Company.KycComplete =='Y'" />
+                        <label for="BranchName"
+                            class="absolute left-0 ml-1 px-1 mt-2 bg-white  -translate-y-5 text-sm duration-75 text-gray-500
+                                                peer-placeholder-shown:bg-transparent peer-placeholder-shown:text-transparent
+                                                peer-focus:text-gray-500 peer-focus:bg-white  peer-focus:-translate-y-5  peer-focus:text-sm">Company
+                            Branch Name
+                        </label>
+                    </div>
+                    <div class="relative my-1">
+                        <input id="AccountNo" v-model="Company.AccountNo" type="text"
+                            class="w-full h-full form-input placeholder:text-gray-500  focus:placeholder:text-transparent peer"
+                            placeholder="Account Number" :disabled="Company.KycComplete =='Y'" />
+                        <label for="AccountNo"
+                            class="absolute left-0 ml-1 px-1 mt-2 bg-white  -translate-y-5 text-sm duration-75 text-gray-500
+                                                                    peer-placeholder-shown:bg-transparent peer-placeholder-shown:text-transparent
+                                                                    peer-focus:text-gray-500 peer-focus:bg-white  peer-focus:-translate-y-5  peer-focus:text-sm">Company
+                            Account Number
+                        </label>
+                    </div>
+                    <div class="relative my-1">
+                        <input id="VirtualPaymentAddress" v-model="Company.VirtualPaymentAddress" type="text"
+                            class="w-full h-full form-input placeholder:text-gray-500  focus:placeholder:text-transparent peer"
+                            placeholder="Virtual Payment Address" :disabled="Company.KycComplete =='Y'" />
+                        <label for="VirtualPaymentAddress"
+                            class="absolute left-0 ml-1 px-1 mt-2 bg-white  -translate-y-5 text-sm duration-75 text-gray-500
+                                                                                        peer-placeholder-shown:bg-transparent peer-placeholder-shown:text-transparent
+                                                                                        peer-focus:text-gray-500 peer-focus:bg-white  peer-focus:-translate-y-5  peer-focus:text-sm">Company
+                            Virtual Payment Address
+                        </label>
+                    </div>
+                </div>
+                <div class="mt-7 grid sm:grid-cols-1 md:grid-cols-2 gap-2 border border-dark  p-3 relative" v-for="(Facility,fi) in Company.Facilities">
+                    <button
+                        class="absolute -right-0 px-2 py-0 -mr-4 -mt-4 border-2 border-red-900  rounded-xl fa fa-times bg-white hover:cursor-pointer disabled:hover:cursor-default  disabled:bg-gray-600 text-red-600 hover:text-red-700 active:text-red-800 text-2xl"
+                        @click="cancelFacilityAdd($event)" v-if="!Facility.Id"></button>
+
+                    <input v-bind:id="'Name_'+fi" v-model="Facility.Name" type="text"
+                        class="absolute left-0 ml-3 px-1 -mt-4 h-7  w-24 bg-gray-300 text-dark rounded-xl text-sm"
+                        placeholder="Name" :disabled="Company.KycComplete == 'Y'" />
+
+                    <div v-bind:class="'relative my-1 ' + (( i == 0)? 'mt-4' : ((i == 1)? 'sm:mt-1 md:mt-4' : '' ))" 
+                        v-for="(tf,i) in     Meta.Facility.TextFields">
+                        <input v-bind:id="tf+'_'+fi" v-model="Facility[tf]" type="text"
+                            class="w-full h-full form-input placeholder:text-gray-500  focus:placeholder:text-transparent peer"
+                            v-bind:placeholder="tf" :disabled="Company.KycComplete == 'Y'" />
+                        <label v-bind:for="tf+'_'+fi"
+                            class="absolute left-0 ml-1 px-1 mt-2 bg-white  -translate-y-5 text-sm duration-75 text-gray-500
+                                            peer-placeholder-shown:bg-transparent peer-placeholder-shown:text-transparent
+                                            peer-focus:text-gray-500 peer-focus:bg-white peer-focus:-translate-y-5  peer-focus:text-sm">{{tf}}</label>
+                    </div>
+                    <div class="relative my-1">
+                        <input v-bind:id="'PinCode_'+fi" v-model="Facility.PinCode.PinCode" type="text"
+                            class="w-full h-full form-input placeholder:text-gray-500  focus:placeholder:text-transparent peer"
+                            placeholder="PinCode" v-on:input="onChange($event,'PinCode','Facility',Facility)"
+                            v-on:focus="removeList($event)" v-on:keyup.down="navigate($event,0,LookUp.Entries.length)"
+                            :disabled="Company.KycComplete == 'Y'" />
+                        <label v-bind:for="'PinCode_'+fi"
+                            class="absolute left-0 ml-1 px-1 mt-2 bg-white  -translate-y-5 text-sm duration-75 text-gray-500
+                                            peer-placeholder-shown:bg-transparent peer-placeholder-shown:text-transparent
+                                            peer-focus:text-gray-500 peer-focus:bg-white  peer-focus:-translate-y-5  peer-focus:text-sm">PinCode</label>
+                    </div>
+
+                </div>
+                <div class="grid grid-cols-1 mt-2" v-if="Company.Facilities && Company.Facilities.length > 0 && Company.KycComplete != 'Y'">
+                    <div class="flex flex-row-reverse">
+                        <button class="h-full  text-base px-10 py-3 rounded-xl hover:cursor-pointer disabled:hover:cursor-default bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white disabled:bg-gray-600" @click="addFacility($event)"
+                        v-if="(Company.Facilities[Company.Facilities.length -1].Id)" >New Facility</button>
+                        <button
+                            class="h-full  text-base px-10 py-3 rounded-xl hover:cursor-pointer disabled:hover:cursor-default bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white disabled:bg-gray-600"
+                            @click="saveCompany($event)" v-else>Save</button>
+
+                    </div>
+                </div>
+
+
+                <div class="grid grid-cols-1 mt-2" v-if="User.KycComplete == 'Y'">
+                    <!-- Only after user kyc is complete do kyb documents-->
+                    <div class="text-dark text-2xl font-semibold">Submit Kyb Documents</div>
+                    <div class="mt-2">
+                        <select v-model="NewSubmittedDocument.DocumentId" >
+                            <option :value=null>Please select</option>
+                            <option v-for="(doc,i) in Documents" :value="doc.Id" v-if="Documents && Documents.length > 0">
+                                {{doc.DocumentName}}
+                            </option>
+                        </select>
+                        <label for="new_doc"
+                            class="ml-2 py-3 px-10 hover:cursor-pointer text-base  rounded-xl border-0 font-semibold   bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white"
+                            v-if="NewSubmittedDocument.DocumentId">
+                            {{ NewSubmittedDocument.FileContentName ? 'Change File' : 'Select File' }}
+                        </label>
+                        <input id="new_doc" ref="new_doc" type="file" class="hidden" v-on:input="onFileSelect($event)" />
+                        <span
+                            class="ml-2 py-3 px-10 hover:cursor-pointer text-base  rounded-xl border-0 font-semibold  bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white"
+                            v-if="NewSubmittedDocument.FileContentName" @click="submitDocument($event)">Upload</span>
+                
+                    </div>
+                    <div class="mt-2" v-if="NewSubmittedDocument.DocumentId && NewSubmittedDocument.FileContentName">
+                        <div class="flex flex-row">
+                            <span class="mt-5 font-semibold text-gray-500">{{ NewSubmittedDocument.FileContentName }}</span>
+                            <div class="py-3 ml-2 relative inline-block w-[10%]"
+                                v-if="NewSubmittedDocument.FileContentName.endsWith('.zip')">
+                                <input id="DocPassword" v-model="NewSubmittedDocument.Password" type="password"
+                                    class="form-input w-full h-full  placeholder:text-gray-500  focus:placeholder:text-transparent peer"
+                                    placeholder="Password" />
+                                <label for="DocPassword"
+                                    class="absolute left-0  px-1 mt-2 bg-white  -translate-y-5 text-sm duration-75 text-gray-500
+                                    peer-placeholder-shown:bg-transparent peer-placeholder-shown:text-transparent
+                                    peer-focus:text-gray-500 peer-focus:bg-white peer-focus:-translate-y-5  peer-focus:text-sm">
+                                    Password
+                                </label>
+                            </div>
+                
+                        </div>
+                    </div>
+                
+                </div>
+                <div class="grid grid-cols-1 mt-16">
+                    <div class="grid sm:grid-cols-1 md:grid-cols-3 bg-gray-600 text-dark font-semibold">
+                        <div class="ml-1 px-1 my-2">
+                            DocumentName
+                        </div>
+                        <div class="ml-1 px-1 my-2 ">
+                            File Uploaded
+                        </div>
+                        <div class="flex flex-row ml-1 px-1 my-2">
+                            VerificationStatus
+                        </div>
+                    </div>
+                    <div v-bind:class="'grid sm:grid-cols-1 md:grid-cols-3 ' + ((i%2==0)? 'bg-yellow-100' : 'bg-blue-100')"
+                        v-for="(sd,i) in SubmittedDocuments">
+                        <div class="ml-1 px-1 my-2">
+                            {{sd.Document.DocumentName}}
+                        </div>
+                        <div class="ml-1 px-1 my-2 ">
+                            <a v-bind:href="sd.ImageUrl" class="text-primary hover:cursor-pointer">
+                                {{sd.FileContentName}}
+                            </a>
+                        </div>
+                        <div class="flex flex-row ml-1 px-1 my-2">
+                            <div class=" w-full">
+                                {{sd.VerificationStatus}}
+                            </div>
+                            <i class="fas text-2xl fa-times p-1 text-red-600 hover:text-red-700 active:text-red-800  hover:cursor-pointer" @click="destroySubmittedDocument($event,i)">
+                            </i>
+                        </div>
+                
+                    </div>
+                </div>
+            </div>
+            
+            <div id="profile" class="basis-full" v-else-if="show_id === 'profile'">
+                <div class="grid grid-cols-2 mt-2">
+                    <div class="text-dark text-2xl font-semibold">Update Profile</div>
+                    <div class="flex flex-row-reverse">
+                        <button class="h-full  text-base px-10 py-3 rounded-xl hover:cursor-pointer disabled:hover:cursor-default bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white disabled:bg-gray-600" :disabled="User.KycComplete == 'Y'" @click="saveUser">Save</button>
+                    </div>
+                </div>
+                
+                <div class="mt-5 grid sm:grid-cols-1 md:grid-cols-2 gap-2 ">
+                    <div class="relative my-1" v-for="(tf,i) in Meta.User.TextFields">
+                        <input v-bind:id="tf" v-model="User[tf]"  type="text" class="w-full h-full form-input placeholder:text-gray-500  focus:placeholder:text-transparent peer"
+                            v-bind:placeholder="tf" :disabled="User.KycComplete == 'Y'" />
+                        <label v-bind:for="tf"
+                            class="absolute left-0 ml-1 px-1 mt-2 bg-white  -translate-y-5 text-sm duration-75 text-gray-500
+                            peer-placeholder-shown:bg-transparent peer-placeholder-shown:text-transparent
+                            peer-focus:text-gray-500 peer-focus:bg-white peer-focus:-translate-y-5  peer-focus:text-sm">{{tf}}</label>
+                    </div>
+                    <div class="relative my-1">
+                        <input id="PinCode" v-model="User.PinCode.PinCode" type="text"
+                            class="w-full h-full form-input placeholder:text-gray-500  focus:placeholder:text-transparent peer" placeholder="PinCode"
+                            v-on:input="onChange($event,'PinCode','User',User)" v-on:focus="removeList($event)" v-on:keyup.down="navigate($event,0,LookUp.Entries.length)"
+                            :disabled="User.KycComplete == 'Y'" />
+                        <label for="PinCode"  
+                            class="absolute left-0 ml-1 px-1 mt-2 bg-white  -translate-y-5 text-sm duration-75 text-gray-500
+                            peer-placeholder-shown:bg-transparent peer-placeholder-shown:text-transparent
+                            peer-focus:text-gray-500 peer-focus:bg-white  peer-focus:-translate-y-5  peer-focus:text-sm">PinCode</label>
+                    </div>
+                    <div class="relative my-1">
+                        <input id="Name" v-model="User.Name" type="email"
+                            class="w-full h-full form-input placeholder:text-gray-500  focus:placeholder:text-transparent peer"
+                            placeholder="Primary Email" disabled />
+                        <label for="Name"
+                            class="absolute left-0 ml-1 px-1 mt-2 bg-white  -translate-y-5 text-sm duration-75  text-gray-500
+                            peer-placeholder-shown:bg-transparent peer-placeholder-shown:text-transparent
+                            peer-focus:text-gray-500 peer-focus:bg-white peer-focus:-translate-y-5  peer-focus:text-sm">Primary Email</label>
+                    </div>
+                    <div class="relative flex flex-row my-1" v-if="User.UserEmails && User.UserEmails.length == 1">
+                        <div v-if="User.UserEmails[0].Validated != 'Y' && User.UserEmails[0].LastOtp">
+                            <input id="email_otp" v-model="User.UserEmails[0].Otp" type="password"
+                                class="form-input w-full h-full  placeholder:text-gray-500  focus:placeholder:text-transparent peer"
+                                v-bind:placeholder="User.UserEmails[0].LastOtp" />
+                            <label for="email_otp"
+                                class="absolute left-0 ml-1 px-1 mt-2 bg-white  -translate-y-5 text-sm duration-75 text-gray-500
+                                peer-placeholder-shown:bg-transparent peer-placeholder-shown:text-transparent
+                                peer-focus:text-gray-500 peer-focus:bg-white peer-focus:-translate-y-5  peer-focus:text-sm">
+                                Otp
+                            </label>
+                        </div>
+                        <div>
+                            <button class="h-full px-4 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white" @click="validateOtp(event)"
+                                v-if="User.UserEmails[0].Validated != 'Y'">
+                                {{User.UserEmails[0].LastOtp ? 'Verify Otp' : 'Verify Email'}}
+                            </button>
+                            <i class=" text-4xl fas fa-check text-green-600" v-else></i>
+                        </div>
+                    </div>
+                    <div class="relative my-1">
+                        <input id="ChangePassword" v-model="User.ChangePassword" type="password"
+                            class="form-input w-full h-full  placeholder:text-gray-500  focus:placeholder:text-transparent peer"
+                            placeholder="Change Password" :disabled="User.KycComplete == 'Y'" />
+                        <label for="ChangePassword"
+                            class="absolute left-0 ml-1 px-1 mt-2 bg-white  -translate-y-5 text-sm duration-75 text-gray-500
+                            peer-placeholder-shown:bg-transparent peer-placeholder-shown:text-transparent
+                            peer-focus:text-gray-500 peer-focus:bg-white peer-focus:-translate-y-5  peer-focus:text-sm">
+                            Change Password
+                        </label>
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 mt-2" v-if="!User.Admin || User.Admin != 'Y' ">
+                    <div class="text-dark text-2xl font-semibold">Submit Kyc Documents</div>
+                    <div class="mt-2">
+                        <select  v-model="NewSubmittedDocument.DocumentId">
+                            <option :value=null>Please select</option>
+                            <option v-for="(doc,i) in Documents" :value="doc.Id" v-if="Documents && Documents.length > 0">
+                                {{doc.DocumentName}}
+                            </option>   
+                        </select>
+                        <label for="new_doc" class="ml-2 py-3 px-10 hover:cursor-pointer text-base  rounded-xl border-0 font-semibold   bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white" v-if="NewSubmittedDocument.DocumentId">
+                            {{ NewSubmittedDocument.FileContentName ? 'Change File' : 'Select File' }}
+                        </label>
+                        <input id="new_doc" ref="new_doc" type="file" class="hidden" v-on:input="onFileSelect($event)" />
+                        <span
+                            class="ml-2 py-3 px-10 hover:cursor-pointer text-base  rounded-xl border-0 font-semibold  bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white"
+                            v-if="NewSubmittedDocument.FileContentName" @click="submitDocument($event)">Upload</span>
+
+                    </div>
+                    <div class="mt-2"  v-if="NewSubmittedDocument.DocumentId && NewSubmittedDocument.FileContentName">
+                        <div class="flex flex-row">
+                            <span class="mt-5 font-semibold text-gray-500" >{{ NewSubmittedDocument.FileContentName }}</span>
+                            <div class="py-3 ml-2 relative inline-block w-[10%]" v-if="NewSubmittedDocument.FileContentName.endsWith('.zip')">
+                                <input id="DocPassword" v-model="NewSubmittedDocument.Password" type="password"
+                                    class="form-input w-full h-full  placeholder:text-gray-500  focus:placeholder:text-transparent peer"
+                                    placeholder="Password" />
+                                <label for="DocPassword"
+                                    class="absolute left-0  px-1 mt-2 bg-white  -translate-y-5 text-sm duration-75 text-gray-500
+                                                                peer-placeholder-shown:bg-transparent peer-placeholder-shown:text-transparent
+                                                                peer-focus:text-gray-500 peer-focus:bg-white peer-focus:-translate-y-5  peer-focus:text-sm">
+                                    Password
+                                </label>
+                            </div>
+
+                        </div>
+                    </div>
+                        
+                </div>
+                <div class="grid grid-cols-1 mt-16">
+                    <div class="grid sm:grid-cols-1 md:grid-cols-3 bg-gray-600 text-dark font-semibold">
+                        <div class="ml-1 px-1 my-2">
+                            DocumentName
+                        </div>
+                        <div class="ml-1 px-1 my-2 ">
+                            File Uploaded
+                        </div>
+                        <div class="flex flex-row ml-1 px-1 my-2">
+                            VerificationStatus
+                        </div>
+                    </div>
+                    <div v-bind:class="'grid sm:grid-cols-1 md:grid-cols-3 ' + ((i%2==0)? 'bg-yellow-100' : 'bg-blue-100')" v-for="(sd,i) in SubmittedDocuments">
+                        <div class="ml-1 px-1 my-2">
+                            {{sd.Document.DocumentName}}
+                        </div>
+                        <div class="ml-1 px-1 my-2 ">
+                            <a v-bind:href="sd.ImageUrl" class="text-primary hover:cursor-pointer">
+                                {{sd.FileContentName}}
+                            </a>
+                        </div>
+                        <div class="flex flex-row ml-1 px-1 my-2">
+                            <div class=" w-full">
+                                {{sd.VerificationStatus}}
+                            </div>
+                            <i class="fas text-2xl fa-times p-1 text-red-600 hover:text-red-700 active:text-red-800  hover:cursor-pointer" @click="destroySubmittedDocument($event,i)">
+                            </i>
+                        </div>
+                        
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+</div>
