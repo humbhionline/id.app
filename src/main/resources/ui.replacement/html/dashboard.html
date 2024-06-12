@@ -45,7 +45,7 @@
             methods: {
                 showErrorMessage(msg, duration){
                     let self = this; 
-                    let time = duration || 500;
+                    let time = duration || 900;
                     self.Notification.msg = msg;
                     if(self.Notification.errorTimeOut) {
                         clearTimeout(self.Notification.errorTimeOut);
@@ -191,8 +191,6 @@
                                 r.Applications.forEach(a=>{
                                     self.Applications.push(a);  
                                 })
-                            }else {
-                                self.addApplication();
                             }
                             self.Applications.forEach((Application)=>{
                                 self.initApplication(Application);
@@ -365,6 +363,8 @@
                         self.SubmittedDocuments.splice(0,0,response.SubmittedDocuments[0]);
                         self.initNewSubmittedDocument();
                         //window.location.reload();
+                    }).catch(function(err){
+                        self.showError(err);
                     }).finally(function(){
                         self.spinner(false);
                     });
@@ -447,6 +447,20 @@
                     event && event.preventDefault();
                     let self = this;
                     self.Applications.splice(ai,1);
+                },
+                determineTabToShow(){
+                    let self = this;
+                    if (!self.show_id){
+                        if (self.User.KycComplete != 'Y') {
+                            self.show("profile");
+                        } else if (self.Company.KycComplete != 'Y') {
+                            self.show("company_profile");
+                        } else {
+                            self.show("application");
+                        }
+                    }else {
+                        self.show(self.show_id);
+                    }
                 }
 
             },
@@ -469,13 +483,9 @@
                     }
                 }).then(function(){
                     self.loadCompanies().then(function(){
-                        if (self.show_id) {
-                            self.show(self.show_id);
-                        } else {
-                            self.show("dashboard")
-                        }
                         let e = self.$refs['content'];
                         e.classList.remove("invisible");
+                        self.determineTabToShow();
                     });
                 });
 
@@ -509,14 +519,14 @@
                 v-on:click="show('dashboard')" title="Dashboard"></div>
             <div class="group-hover:visible invisible p-2 text-white bg-blue-600 hover:bg-blue-700 active:bg-blue-900 hover:cursor-pointer fas fa-id-card text-xl"
                 v-on:click="show('profile')" title="Profile"></div>
-            <div class="group-hover:visible invisible p-2 text-white bg-blue-600 hover:bg-blue-700 active:bg-blue-900  hover:cursor-pointer fas fa-cloud text-xl"
-                v-on:click="show('application')" title="Applications" v-if="Company.KycComplete == 'Y'"></div>
             <div class="group-hover:visible invisible p-2 text-white bg-blue-600 hover:bg-blue-700 active:bg-blue-900  hover:cursor-pointer fas fa-building text-xl "
                 v-on:click="show('company_profile')" title="Company Profile" v-if="User.KycComplete == 'Y'"> </div>
+            <div class="group-hover:visible invisible p-2 text-white bg-blue-600 hover:bg-blue-700 active:bg-blue-900  hover:cursor-pointer fas fa-cloud text-xl"
+                v-on:click="show('application')" title="Applications" v-if="Company.KycComplete == 'Y'"></div>
             <div class="group-hover:visible invisible p-2 text-white bg-blue-600 hover:bg-blue-700 active:bg-blue-900  hover:cursor-pointer fas fa-power-off text-xl"
                 v-on:click="logout()" title="Logout"></div>
         </div>
-        <div class="md:mx-11  sm:mx-3 basis-full mt-6" >
+        <div class="md:mx-11  mx-4 basis-full mt-6" >
             <div id="dashboard" class=" basis-full" v-if="show_id === 'dashboard'">Dashboard</div>
             <div id="application" class=" basis-full" v-if="show_id === 'application' && Company.KycComplete == 'Y'">
                 <div class="grid grid-cols-2 mt-2">
@@ -529,6 +539,9 @@
                             class="h-full px-2 mr-2 py-1  bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white hover:cursor-pointer fas fa-plus text-2xl"
                             @click="addApplication(true)"></button>
                     </div>
+                </div>
+                <div class="relative mt-20 pb-4 text-orange-500 font-semibold text-center pl-3 -ml-3 -mr-6 pr-6" v-if="Applications.length == 0">
+                    You can ignore this section if you don't have any beckn enabled applications!
                 </div>
                 <div class="relative mt-8 pb-4 border border-dark box-content pl-3 -ml-3 -mr-6 pr-6" v-for="(Application,ai) in  Applications">
                     <a href="#" class="z-10 absolute -right-0 px-2 py-0 -mr-4 -mt-4 border-2  border-red-900  rounded-xl fa fa-times hover:cursor-pointer text-red-600 hover:text-red-700 active:text-red-800 text-2xl" v-if="!Application.Id" @click="clearApp($event,Application,ai)"></a>
@@ -810,13 +823,13 @@
                             </option>
                         </select>
                         <label for="new_doc"
-                            class="ml-2 py-3 px-10 hover:cursor-pointer text-base  rounded-xl border-0 font-semibold   bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white"
+                            class="ml-2 py-3 sm:px-10 hover:cursor-pointer text-base  rounded-xl border-0 font-semibold   bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white"
                             v-if="NewSubmittedDocument.DocumentId">
                             {{ NewSubmittedDocument.FileContentName ? 'Change File' : 'Select File' }}
                         </label>
                         <input id="new_doc" ref="new_doc" type="file" class="hidden" v-on:input="onFileSelect($event)" />
                         <span
-                            class="ml-2 py-3 px-10 hover:cursor-pointer text-base  rounded-xl border-0 font-semibold  bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white"
+                            class="ml-2 py-3 sm:px-10 hover:cursor-pointer text-base  rounded-xl border-0 font-semibold  bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white"
                             v-if="NewSubmittedDocument.FileContentName" @click="submitDocument($event)">Upload</span>
                 
                     </div>
@@ -841,7 +854,7 @@
                 
                 </div>
                 <div class="grid grid-cols-1 mt-16">
-                    <div class="grid sm:grid-cols-1 md:grid-cols-3 bg-gray-600 text-dark font-semibold">
+                    <div class="grid sm:grid-cols-1 md:grid-cols-3 bg-blue-200 text-dark font-semibold">
                         <div class="ml-1 px-1 my-2">
                             DocumentName
                         </div>
@@ -874,18 +887,49 @@
                 </div>
             </div>
             
-            <div id="profile" class="basis-full" v-else-if="show_id === 'profile'">
+            <div id="profile" class="basis-full" v-else-if="show_id === 'profile' && User.UserEmails">
                 <div class="grid grid-cols-2 mt-2">
                     <div class="text-dark text-2xl font-semibold">Update Profile</div>
                     <div class="flex flex-row-reverse">
-                        <button class="h-full  text-base px-10 py-3 rounded-xl hover:cursor-pointer disabled:hover:cursor-default bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white disabled:bg-gray-600" :disabled="User.KycComplete == 'Y'" @click="saveUser">Save</button>
+                        <button class="h-full fas fa-save text-3xl px-2 py-1 hover:cursor-pointer disabled:hover:cursor-default bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white disabled:bg-gray-600"  @click="saveUser"></button>
                     </div>
                 </div>
                 
-                <div class="mt-5 grid sm:grid-cols-1 md:grid-cols-2 gap-2 ">
+                <div class="mt-5 grid grid-cols-1 md:grid-cols-2 gap-2 ">
+                    <div class="relative my-1">
+                        <input id="Name" v-model="User.Name" type="email"
+                            class="w-full h-full form-input placeholder:text-gray-500  focus:placeholder:text-transparent peer"
+                            placeholder="Primary Email" disabled />
+                        <label for="Name"
+                            class="absolute left-0 ml-1 px-1 mt-2 bg-white  -translate-y-5 text-sm duration-75  text-gray-500
+                                                peer-placeholder-shown:bg-transparent peer-placeholder-shown:text-transparent
+                                                peer-focus:text-gray-500 peer-focus:bg-white peer-focus:-translate-y-5  peer-focus:text-sm">Primary
+                            Email</label>
+                    </div>
+                    <div class="relative flex flex-row my-1" v-if="User.UserEmails && User.UserEmails.length == 1">
+                        <div v-if="User.UserEmails[0].Validated != 'Y' && User.UserEmails[0].LastOtp">
+                            <input id="email_otp" v-model="User.UserEmails[0].Otp" type="password"
+                                class="form-input w-full h-full  placeholder:text-gray-500  focus:placeholder:text-transparent peer"
+                                v-bind:placeholder="User.UserEmails[0].LastOtp" />
+                            <label for="email_otp"
+                                class="absolute left-0 ml-1 px-1 mt-2 bg-white  -translate-y-5 text-sm duration-75 text-gray-500
+                                                    peer-placeholder-shown:bg-transparent peer-placeholder-shown:text-transparent
+                                                    peer-focus:text-gray-500 peer-focus:bg-white peer-focus:-translate-y-5  peer-focus:text-sm">
+                                Otp
+                            </label>
+                        </div>
+                        <div>
+                            <button class="h-full px-4 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white"
+                                @click="validateOtp(event)" v-if="User.UserEmails[0].Validated != 'Y'">
+                                {{User.UserEmails[0].LastOtp ? 'Verify Otp' : 'Verify Email'}}
+                            </button>
+                            <i class=" text-4xl fas fa-check text-green-600" v-else></i>
+                        </div>
+                    </div>
+
                     <div class="relative my-1" v-for="(tf,i) in Meta.User.TextFields">
                         <input v-bind:id="tf" v-model="User[tf]"  type="text" class="w-full h-full form-input placeholder:text-gray-500  focus:placeholder:text-transparent peer"
-                            v-bind:placeholder="tf" :disabled="User.KycComplete == 'Y'" />
+                            v-bind:placeholder="tf" :disabled="User.KycComplete == 'Y' || User.UserEmails[0].Validated != 'Y'" />
                         <label v-bind:for="tf"
                             class="absolute left-0 ml-1 px-1 mt-2 bg-white  -translate-y-5 text-sm duration-75 text-gray-500
                             peer-placeholder-shown:bg-transparent peer-placeholder-shown:text-transparent
@@ -895,45 +939,16 @@
                         <input id="PinCode" v-model="User.PinCode.PinCode" type="text"
                             class="w-full h-full form-input placeholder:text-gray-500  focus:placeholder:text-transparent peer" placeholder="PinCode"
                             v-on:input="onChange($event,'PinCode','User',User)" v-on:focus="removeList($event)" v-on:keyup.down="navigate($event,0,LookUp.Entries.length)"
-                            :disabled="User.KycComplete == 'Y'" />
+                            :disabled="User.KycComplete == 'Y' || User.UserEmails[0].Validated != 'Y'" />
                         <label for="PinCode"  
                             class="absolute left-0 ml-1 px-1 mt-2 bg-white  -translate-y-5 text-sm duration-75 text-gray-500
                             peer-placeholder-shown:bg-transparent peer-placeholder-shown:text-transparent
                             peer-focus:text-gray-500 peer-focus:bg-white  peer-focus:-translate-y-5  peer-focus:text-sm">PinCode</label>
                     </div>
                     <div class="relative my-1">
-                        <input id="Name" v-model="User.Name" type="email"
-                            class="w-full h-full form-input placeholder:text-gray-500  focus:placeholder:text-transparent peer"
-                            placeholder="Primary Email" disabled />
-                        <label for="Name"
-                            class="absolute left-0 ml-1 px-1 mt-2 bg-white  -translate-y-5 text-sm duration-75  text-gray-500
-                            peer-placeholder-shown:bg-transparent peer-placeholder-shown:text-transparent
-                            peer-focus:text-gray-500 peer-focus:bg-white peer-focus:-translate-y-5  peer-focus:text-sm">Primary Email</label>
-                    </div>
-                    <div class="relative flex flex-row my-1" v-if="User.UserEmails && User.UserEmails.length == 1">
-                        <div v-if="User.UserEmails[0].Validated != 'Y' && User.UserEmails[0].LastOtp">
-                            <input id="email_otp" v-model="User.UserEmails[0].Otp" type="password"
-                                class="form-input w-full h-full  placeholder:text-gray-500  focus:placeholder:text-transparent peer"
-                                v-bind:placeholder="User.UserEmails[0].LastOtp" />
-                            <label for="email_otp"
-                                class="absolute left-0 ml-1 px-1 mt-2 bg-white  -translate-y-5 text-sm duration-75 text-gray-500
-                                peer-placeholder-shown:bg-transparent peer-placeholder-shown:text-transparent
-                                peer-focus:text-gray-500 peer-focus:bg-white peer-focus:-translate-y-5  peer-focus:text-sm">
-                                Otp
-                            </label>
-                        </div>
-                        <div>
-                            <button class="h-full px-4 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white" @click="validateOtp(event)"
-                                v-if="User.UserEmails[0].Validated != 'Y'">
-                                {{User.UserEmails[0].LastOtp ? 'Verify Otp' : 'Verify Email'}}
-                            </button>
-                            <i class=" text-4xl fas fa-check text-green-600" v-else></i>
-                        </div>
-                    </div>
-                    <div class="relative my-1">
                         <input id="ChangePassword" v-model="User.ChangePassword" type="password"
                             class="form-input w-full h-full  placeholder:text-gray-500  focus:placeholder:text-transparent peer"
-                            placeholder="Change Password" :disabled="User.KycComplete == 'Y'" />
+                            placeholder="Change Password"  />
                         <label for="ChangePassword"
                             class="absolute left-0 ml-1 px-1 mt-2 bg-white  -translate-y-5 text-sm duration-75 text-gray-500
                             peer-placeholder-shown:bg-transparent peer-placeholder-shown:text-transparent
@@ -942,45 +957,61 @@
                         </label>
                     </div>
                 </div>
-                <div class="grid grid-cols-1 mt-2" v-if="!User.Admin || User.Admin != 'Y' ">
+                <div class="mt-5  grid grid-cols-1 md:grid-cols-2 gap-2" v-if="!User.Admin || User.Admin != 'Y' ">
                     <div class="text-dark text-2xl font-semibold">Submit Kyc Documents</div>
-                    <div class="mt-2">
-                        <select  v-model="NewSubmittedDocument.DocumentId">
-                            <option :value=null>Please select</option>
-                            <option v-for="(doc,i) in Documents" :value="doc.Id" v-if="Documents && Documents.length > 0">
+                </div>
+                <div class="mt-5  flex flex-wrap" v-if="!User.Admin || User.Admin != 'Y' ">
+                    <div class="basis-1/2 md:basis-1/4">
+                        <select v-model="NewSubmittedDocument.DocumentId"  class="py-2 w-full">
+                            <option :value=null >Please select</option>
+                            <option  v-for="(doc,i) in Documents" :value="doc.Id" v-if="Documents && Documents.length > 0">
                                 {{doc.DocumentName}}
-                            </option>   
+                            </option>
                         </select>
-                        <label for="new_doc" class="ml-2 py-3 px-10 hover:cursor-pointer text-base  rounded-xl border-0 font-semibold   bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white" v-if="NewSubmittedDocument.DocumentId">
-                            {{ NewSubmittedDocument.FileContentName ? 'Change File' : 'Select File' }}
-                        </label>
-                        <input id="new_doc" ref="new_doc" type="file" class="hidden" v-on:input="onFileSelect($event)" />
-                        <span
-                            class="ml-2 py-3 px-10 hover:cursor-pointer text-base  rounded-xl border-0 font-semibold  bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white"
-                            v-if="NewSubmittedDocument.FileContentName" @click="submitDocument($event)">Upload</span>
-
                     </div>
-                    <div class="mt-2"  v-if="NewSubmittedDocument.DocumentId && NewSubmittedDocument.FileContentName">
-                        <div class="flex flex-row">
-                            <span class="mt-5 font-semibold text-gray-500" >{{ NewSubmittedDocument.FileContentName }}</span>
-                            <div class="py-3 ml-2 relative inline-block w-[10%]" v-if="NewSubmittedDocument.FileContentName.endsWith('.zip')">
-                                <input id="DocPassword" v-model="NewSubmittedDocument.Password" type="password"
-                                    class="form-input w-full h-full  placeholder:text-gray-500  focus:placeholder:text-transparent peer"
-                                    placeholder="Password" />
-                                <label for="DocPassword"
-                                    class="absolute left-0  px-1 mt-2 bg-white  -translate-y-5 text-sm duration-75 text-gray-500
-                                                                peer-placeholder-shown:bg-transparent peer-placeholder-shown:text-transparent
-                                                                peer-focus:text-gray-500 peer-focus:bg-white peer-focus:-translate-y-5  peer-focus:text-sm">
-                                    Password
-                                </label>
-                            </div>
-
+                    <div class="basis-1/2 md:basis-1/4" v-if="NewSubmittedDocument.DocumentId ">
+                        <input id="new_doc" ref="new_doc" type="file" class="hidden" v-on:input="onFileSelect($event)" />
+                        <div class="flex flex-row" >
+                            <label for="new_doc"
+                                class="ml-2 py-2 px-4 w-full hover:cursor-pointer text-base  rounded-xl border-0 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white" 
+                                v-if="!NewSubmittedDocument.FileContentName">
+                                Select
+                            </label>
                         </div>
                     </div>
-                        
+                    <div class="basis-full flex flex-row mt-2" v-if="NewSubmittedDocument.DocumentId && NewSubmittedDocument.FileContentName">
+                        <div class="flex none">
+                            <label for="new_doc" class="ml-2 py-2 block truncate text-primary hover:cursor-pointer">
+                                {{ NewSubmittedDocument.FileContentName.substring(0,40) + (NewSubmittedDocument.FileContentName.length > 40 ? '...' : '') }}</label>
+                        </div>
+                        <div class="flex grow justify-start" v-if="!NewSubmittedDocument.FileContentName.endsWith('.zip')">
+                            <button
+                                class="ml-2 mb-1 py-1 px-2  hover:cursor-pointer text-3xl  bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white fas fa-file-upload"
+                                @click="submitDocument($event)">
+                            </button>
+                        </div>
+                    </div>                    
+                    <div class="basis-full flex flex-row" v-if="NewSubmittedDocument.DocumentId && NewSubmittedDocument.FileContentName && NewSubmittedDocument.FileContentName.endsWith('.zip')">
+                        <div class="relative">
+                            <input id="DocPassword" v-model="NewSubmittedDocument.Password" type="password"
+                                class="form-input py-2 w-full placeholder:text-gray-500  focus:placeholder:text-transparent peer"
+                                placeholder="Password" />
+                            <label for="DocPassword"
+                                class="absolute left-0  px-1 ml-1 mt-2 bg-white  -translate-y-5 text-sm duration-75 text-gray-500
+                                                    peer-placeholder-shown:bg-transparent peer-placeholder-shown:text-transparent
+                                                    peer-focus:text-gray-500 peer-focus:bg-white peer-focus:-translate-y-5  peer-focus:text-sm">
+                                Password
+                            </label>
+                        </div>
+                        <div class="flex justify-start">
+                            <button class=" ml-2 mb-1 py-1 px-2 hover:cursor-pointer text-3xl bg-blue-600 hover:bg-blue-700
+                                active:bg-blue-800 text-white fas fa-file-upload" @click="submitDocument($event)">
+                            </button>
+                        </div>
+                    </div>
                 </div>
                 <div class="grid grid-cols-1 mt-16">
-                    <div class="grid sm:grid-cols-1 md:grid-cols-3 bg-gray-600 text-dark font-semibold">
+                    <div class="grid sm:grid-cols-1 md:grid-cols-3 bg-blue-200 text-dark font-semibold">
                         <div class="ml-1 px-1 my-2">
                             DocumentName
                         </div>
