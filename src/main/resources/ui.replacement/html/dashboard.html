@@ -473,8 +473,8 @@
                             self.show("profile");
                         } else if (self.Company.KycComplete != 'Y') {
                             self.show("company_profile");
-                        } else {
-                            self.show("application");
+                        } else  {
+                            self.show("dashboard");
                         }
                     }else {
                         self.show(self.show_id);
@@ -486,7 +486,7 @@
                     self.spinner(true);
                     let facility_id = self.Company.Facilities[fi].Id;
                     api().url(`/catalogs/ingest/${facility_id}`).parameters({ Catalog: self.Catalogs[facility_id] }).post().then(function (response) {
-                        showErrorMessage("Catalog uploaded");
+                        self.showErrorMessage("Catalog uploaded");
                         self.Catalogs[facility_id] = {};
                     }).finally(function () {
                         self.spinner(false);
@@ -559,7 +559,11 @@
                 v-on:click="logout()" title="Logout"></div>
         </div>
         <div class="md:mx-11  mx-4 basis-full mt-6" >
-            <div id="dashboard" class=" basis-full" v-if="show_id === 'dashboard'">Dashboard</div>
+            <div id="dashboard" class=" basis-full" v-if="show_id === 'dashboard'">
+                <div class="grid grid-cols-2 mt-2">
+                    <div class="text-dark text-2xl font-semibold">Dashboard</div>
+                </div>
+            </div>
             <div id="application" class=" basis-full" v-if="show_id === 'application' && Company.KycComplete == 'Y'">
                 <div class="grid grid-cols-2 mt-2">
                     <div class="text-dark text-2xl font-semibold">Application</div>
