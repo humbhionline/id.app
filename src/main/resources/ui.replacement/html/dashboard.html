@@ -33,7 +33,7 @@
                             ReferenceFields: [{ field: "OpenApi", refModel: "OpenApi", refDescriptor: "Name", refModelArrayName: "OpenApis", apiBaseName: 'open_apis' }],
                         },
                         Facility: {
-                            TextFields: ["AddressLine1", "AddressLine2", "AddressLine3"],
+                            TextFields: ["AddressLine1", "AddressLine2", "AddressLine3" , "PhoneNumber"],
                             ReferenceFields: [{ field: "PinCode", refModel: "PinCode", refDescriptor: "PinCode", refModelArrayName: "PinCodes", apiBaseName: 'pin_codes' }],
                         },
                     },
@@ -204,7 +204,7 @@
                     let b = btoa(
                         JSON.stringify(
                             {
-                                "Facility": ["Id","Name", "AddressLine1", "AddressLine2", "AddressLine3","PinCodeId"],
+                                "Facility": ["Id","Name", "AddressLine1", "AddressLine2", "AddressLine3","PinCodeId" , "PhoneNumber"],
                                 "PinCode" : ["PinCode"]
                             }));
 
@@ -396,8 +396,8 @@
                     let b = btoa(
                         JSON.stringify(
                             {
-                                "Facility": ["Id", "Name", "AddressLine1", "AddressLine2", "AddressLine3", "PinCodeId"],
-                                "PinCode": ["PinCode"]
+                                "Facility": ["Id", "Name", "AddressLine1", "AddressLine2", "AddressLine3", "PinCodeId" , "PhoneNumber"],
+                                "PinCode": ["PinCode"] 
                             }));
 
                     this.save("companies","Company","Companies", {"IncludedModelFields":b},function(){
